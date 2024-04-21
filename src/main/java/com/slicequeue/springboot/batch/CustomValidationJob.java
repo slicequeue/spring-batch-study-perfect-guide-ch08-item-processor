@@ -14,7 +14,6 @@ import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
-import org.springframework.batch.item.validator.BeanValidatingItemProcessor;
 import org.springframework.batch.item.validator.ValidatingItemProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,9 +22,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.Resource;
 
-//@EnableBatchProcessing
-//@SpringBootApplication
-public class ValidationJob {
+@EnableBatchProcessing
+@SpringBootApplication
+public class CustomValidationJob {
 
     @Autowired
     private JobBuilderFactory jobBuilderFactory;
@@ -40,7 +39,7 @@ public class ValidationJob {
 
     @Bean
     @StepScope
-    public FlatFileItemReader<Customer> customerFlatFileItemReader(@Value("#{jobParameters['customerFile']}")Resource inputFile) {
+    public FlatFileItemReader<Customer> customerFlatFileItemReader(@Value("#{jobParameters['customerFile']}") Resource inputFile) {
         return new FlatFileItemReaderBuilder<Customer>()
                 .name("customerFlatFileItemReader")
                 .delimited()
@@ -62,15 +61,17 @@ public class ValidationJob {
     }
 
     // 프로세서 정의
+
     @Bean
-    public BeanValidatingItemProcessor<Customer> customerBeanValidatingItemProcessor() {
-        /*
-         * ValidatingItemProcessor 의 유효성 검증 기능은 org.springframework.batch.item.validator.Validator 구현체를 통해 제공
-         * 이 Validator 인터페이스는 void validate(T value) 라는 단일 메서드를 가지고 잇으며 아이템이 유효시 수행하지 않으며 다음 프로세스 또는 writer 로 진행
-         * 검증 실패시 ValidationException 발행함! 따라서 BeanValidatingItemProcessor 는 JSR-303 사양에 따르는 Validator 객체를 생성하는 점에서 특별한 ItemProcessor 임
-         * - 스프링 배치와 스프링 코어의 Validator 인터페이스는 동일하지 않기에 스프링 배치에서는 SpringValidator 라는 어뎁터 클래스를 제공함
-         */
-        return new BeanValidatingItemProcessor<>();
+    public ValidatingItemProcessor<Customer> customerValidatingItemProcessor() {
+        return new ValidatingItemProcessor<>(validator()); // UniqueLastNameValidator 관련 빈 주입하여 ValidatingItemProcessor 빈 생성
+    }
+
+    @Bean
+    public UniqueLastNameValidator validator() { // UniqueLastNameValidator 빈 등록
+        UniqueLastNameValidator uniqueLastNameValidator = new UniqueLastNameValidator();
+        uniqueLastNameValidator.setName("validator");
+        return uniqueLastNameValidator;
     }
 
     @Bean
@@ -78,14 +79,15 @@ public class ValidationJob {
         return this.stepBuilderFactory.get("copyFileStep")
                 .<Customer, Customer>chunk(5)
                 .reader(customerFlatFileItemReader(null))
-                .processor(customerBeanValidatingItemProcessor())
+                .processor(customerValidatingItemProcessor())
                 .writer(itemWriter())
+                .stream(validator()) // ItemStream 관련 메서드를 호출할 수 잇도록 등록 -> UniqueLastNameValidator 에서 ItemStreamSupport 상속 구현 한 것 적용되도록!
                 .build();
     }
 
     @Bean
     public Job job() throws Exception {
-        return this.jobBuilderFactory.get("job-item-processor-validation")
+        return this.jobBuilderFactory.get("job-item-processor-custom-validation")
                 .validator(jobParametersValidator())
                 .incrementer(new RunIdIncrementer())
                 .start(copyFileStep())
@@ -93,7 +95,11 @@ public class ValidationJob {
     }
 
     public static void main(String[] args) {
-//        SpringApplication.run(ValidationJob.class, "customerFile=/input/customer-wrong.csv");
-        SpringApplication.run(ValidationJob.class, "customerFile=/input/customer-success.csv");
+        SpringApplication.run(CustomValidationJob.class, "customerFile=/input/customer-unique.csv");
+        // 1차 시도: org.springframework.batch.item.validator.ValidationException: Duplicate last name was found: Darrow
+        // 6번째 줄 삭제
+        // 2차 시도: org.springframework.batch.item.validator.ValidationException: Duplicate last name was found: Darrow
+        // 12번쨰 줄 삭제
+        //
     }
 }
