@@ -55,6 +55,16 @@ public class Customer {
         this.zip = zip;
     }
 
+    public Customer(Customer original) {
+        this.firstName = original.getFirstName();
+        this.middleInitial = original.getMiddleInitial();
+        this.lastName = original.getLastName();
+        this.address = original.getAddress();
+        this.city = original.getCity();
+        this.state = original.getState();
+        this.zip = original.getZip();
+    }
+
     public String getFirstName() {
         return firstName;
     }

@@ -1,7 +1,7 @@
 package com.slicequeue.springboot.batch;
 
 import com.slicequeue.springboot.batch.domain.Customer;
-import com.slicequeue.springboot.batch.domain.UniqueLastNameValidator;
+import com.slicequeue.springboot.batch.service.UpperCaseNameService;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobParametersValidator;
 import org.springframework.batch.core.Step;
@@ -12,9 +12,9 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.DefaultJobParametersValidator;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.adapter.ItemProcessorAdapter;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
-import org.springframework.batch.item.validator.ValidatingItemProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
@@ -22,9 +22,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.Resource;
 
-//@EnableBatchProcessing
-//@SpringBootApplication
-public class CustomValidationJob {
+@EnableBatchProcessing
+@SpringBootApplication
+public class ItemProcessAdapterJob {
 
     @Autowired
     private JobBuilderFactory jobBuilderFactory;
@@ -55,23 +55,22 @@ public class CustomValidationJob {
                 .build();
     }
 
+
+    @Bean
+    public ItemProcessorAdapter<Customer, Customer> itemProcessorAdapter(
+            UpperCaseNameService service) { // UpperCaseNameService service 서비스 주입!
+        // Adapter 생성 후 아래 설정
+        ItemProcessorAdapter<Customer, Customer> adapter = new ItemProcessorAdapter<>();
+        adapter.setTargetObject(service);       // 필수 - 서비스대상객체
+        adapter.setTargetMethod("upperCase");   // 필수 - 메소드명
+        //  adapter.setArguments(Object[] arguments); 이형태 추가로 정의 가능한데 Adapter 제네릭 부분 input Customer, output Customer 이기에
+        // 별도 세팅 없이 가능
+        return adapter;
+    }
+
     @Bean
     public ItemWriter<Customer> itemWriter() {
         return (items) -> items.forEach(System.out::println);
-    }
-
-    // 프로세서 정의
-
-    @Bean
-    public ValidatingItemProcessor<Customer> customerValidatingItemProcessor() {
-        return new ValidatingItemProcessor<>(validator()); // UniqueLastNameValidator 관련 빈 주입하여 ValidatingItemProcessor 빈 생성
-    }
-
-    @Bean
-    public UniqueLastNameValidator validator() { // UniqueLastNameValidator 빈 등록
-        UniqueLastNameValidator uniqueLastNameValidator = new UniqueLastNameValidator();
-        uniqueLastNameValidator.setName("validator");
-        return uniqueLastNameValidator;
     }
 
     @Bean
@@ -79,15 +78,14 @@ public class CustomValidationJob {
         return this.stepBuilderFactory.get("copyFileStep")
                 .<Customer, Customer>chunk(5)
                 .reader(customerFlatFileItemReader(null))
-                .processor(customerValidatingItemProcessor())
+                .processor(itemProcessorAdapter(null))
                 .writer(itemWriter())
-                .stream(validator()) // ItemStream 관련 메서드를 호출할 수 잇도록 등록 -> UniqueLastNameValidator 에서 ItemStreamSupport 상속 구현 한 것 적용되도록!
                 .build();
     }
 
     @Bean
     public Job job() throws Exception {
-        return this.jobBuilderFactory.get("job-item-processor-custom-validation")
+        return this.jobBuilderFactory.get("job-item-processor-item-process-adapter")
                 .validator(jobParametersValidator())
                 .incrementer(new RunIdIncrementer())
                 .start(copyFileStep())
@@ -95,11 +93,7 @@ public class CustomValidationJob {
     }
 
     public static void main(String[] args) {
-        SpringApplication.run(CustomValidationJob.class, "customerFile=/input/customer-unique.csv");
-        // 1차 시도: org.springframework.batch.item.validator.ValidationException: Duplicate last name was found: Darrow
-        // 6번째 줄 삭제
-        // 2차 시도: org.springframework.batch.item.validator.ValidationException: Duplicate last name was found: Darrow
-        // 12번쨰 줄 삭제
-        //
+        SpringApplication.run(ItemProcessAdapterJob.class, "customerFile=/input/customer-success.csv");
     }
+
 }
